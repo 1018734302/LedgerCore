@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="zh-CN" xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>衡账 LedgerCore · 资金一致性控制台</title>
+  <link rel="stylesheet" th:href="@{/style.css}" href="/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand"><span class="logo">≋</span> 衡账 <small>LedgerCore</small></div>
+  <div class="subtitle">电商商户结算与分账系统 · 资金一致性控制台</div>
+  <div class="top-actions">
+    <span id="balanceBadge" class="badge badge-dim">校验中…</span>
+    <span class="badge badge-ghost"><i class="dot"></i> 实时同步</span>
+    <a href="/h2-console" target="_blank">H2 数据库</a>
+    <a href="/swagger-ui.html" target="_blank">API 文档</a>
+  </div>
+</header>
+
+<main>
+  <section class="kpis">
+    <div class="kpi"><span class="kpi-label">支付订单</span><strong id="kOrder">0</strong><span class="kpi-sub">笔</span></div>
+    <div class="kpi"><span class="kpi-label">记账凭证</span><strong id="kVoucher">0</strong><span class="kpi-sub">张</span></div>
+    <div class="kpi"><span class="kpi-label">分录流水</span><strong id="kEntry">0</strong><span class="kpi-sub">条（只追加）</span></div>
+    <div class="kpi"><span class="kpi-label">借方合计</span><strong id="kDr">0.00</strong><span class="kpi-sub">元</span></div>
+    <div class="kpi"><span class="kpi-label">贷方合计</span><strong id="kCr">0.00</strong><span class="kpi-sub">元</span></div>
+    <div class="kpi"><span class="kpi-label">未闭环差异</span><strong id="kDiff">0</strong><span class="kpi-sub">笔</span></div>
+  </section>
+
+  <div class="layout">
+    <aside class="left">
+      <div id="toast" class="toast"></div>
+
+      <section class="card">
+        <h2>操作台 <span class="hint">从 ① 开始点一遍，就能跑通全链路</span></h2>
+
+        <div class="step">
+          <div class="step-head"><span class="no">1</span> 创建支付订单 <em>状态 INIT，尚不产生分录</em></div>
+          <div class="grid">
+            <label>买家<input id="buyerNo" value="BUYER_001"></label>
+            <label>商户<input id="merchantNo" value="MERCHANT_A"></label>
+            <label>金额（元）<input id="amountYuan" value="100.00"></label>
+            <label>佣金率<input id="feeRate" value="0.0100"></label>
+            <label>渠道<select id="channel"><option>WECHAT</option><option>ALIPAY</option></select></label>
+            <label>幂等键（留空自动生成）<input id="idempotencyKey" placeholder="可留空"></label>
+          </div>
+          <button class="btn primary" data-action="createPayment">创建订单</button>
+        </div>
+
+        <div class="step">
+          <div class="step-head"><span class="no">2</span> 渠道回调 <em>只有回调成功才记账；重复送达可验证幂等</em></div>
+          <div class="grid">
+            <label>订单号<input id="notifyOrderNo" placeholder="点右侧按钮自动填"><button type="button" class="btn tiny" id="fillOrder">用最新订单</button></label>
+            <label>回调结果<select id="result"><option>SUCCESS</option><option>FAILED</option></select></label>
+            <label>重复送达次数<input id="duplicate" type="number" min="1" max="5" value="1"></label>
+          </div>
+          <button class="btn primary" data-action="notify">发送渠道回调</button>
+        </div>
+
+        <div class="step">
+          <div class="step-head"><span class="no">3</span> 退款冲正 <em>生成反向凭证，历史分录永不修改</em></div>
+          <div class="grid">
+            <label>订单号<input id="refundOrderNo" placeholder="点右侧按钮自动填"><button type="button" class="btn tiny" id="fillRefundOrder">用最新订单</button></label>
+            <label>退款金额（元）<input id="refundAmount" value="10.00"></label>
+          </div>
+          <button class="btn" data-action="refund">发起退款</button>
+        </div>
+
+        <div class="step">
+          <div class="step-head"><span class="no">4</span> 批量造数 <em>每笔都走完整记账链路，可直接看数据增长</em></div>
+          <div class="grid">
+            <label>笔数（1–2000）<input id="seedCount" type="number" min="1" max="2000" value="50"></label>
+          </div>
+          <button class="btn" data-action="seed">生成数据</button>
+        </div>
+
+        <div class="step">
+          <div class="step-head"><span class="no">5</span> 注入异常 <em>制造真实故障，再去第 6 步看对账怎么捞出来</em></div>
+          <div class="grid">
+            <label>异常类型<select id="anomalyType">
+              <option value="BILL_AMOUNT_MISMATCH">渠道账单金额不符</option>
+              <option value="MISSING_BILL">渠道账单缺失（短款）</option>
+              <option value="EXTRA_BILL">渠道多出账单（长款）</option>
+              <option value="DUPLICATE_NOTIFY">回调重复送达 3 次</option>
+              <option value="LATE_FAILURE">迟到的失败回调（乱序）</option>
+            </select></label>
+          </div>
+          <button class="btn warn" data-action="anomaly">注入异常</button>
+        </div>
+
+        <div class="step">
+          <div class="step-head"><span class="no">6</span> 日终对账 <em>借贷平衡 + 总分核对 + 渠道账单双向核对</em></div>
+          <div class="grid"><label>对账日期<input id="reconDate"></label></div>
+          <button class="btn primary" data-action="recon">执行对账</button>
+        </div>
+
+        <div class="step">
+          <div class="step-head"><span class="no">7</span> T+1 结算 <em>按商户轧差打款，重复触发会被幂等跳过</em></div>
+          <div class="grid"><label>结算日期<input id="settleDate"></label></div>
+          <button class="btn primary" data-action="settle">执行结算</button>
+        </div>
+
+        <div class="step danger-zone">
+          <div class="step-head"><span class="no">!</span> 重置环境 <em>清空业务数据，账户回到期初余额</em></div>
+          <button class="btn danger" data-action="reset">清空数据</button>
+        </div>
+      </section>
+    </aside>
+
+    <section class="right">
+      <div class="card">
+        <h2>全链路状态 <span class="hint">数据实时驱动，非静态示意</span></h2>
+        <div class="flow" id="flow"></div>
+      </div>
+
+      <div class="card">
+        <h2>实时事件流 <span class="hint">每 1.5 秒增量拉取，操作后立刻可见</span></h2>
+        <div class="event-stream" id="eventStream"></div>
+      </div>
+
+      <div class="card">
+        <div class="tabs" id="tabs"></div>
+        <div class="table-panel" id="tablePanel"></div>
+      </div>
+    </section>
+  </div>
+</main>
+
+<script th:src="@{/app.js}" src="/app.js"></script>
+</body>
+</html>
